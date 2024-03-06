@@ -18,7 +18,10 @@ def main(process=False):
     path_data = os.path.join(path_home, "data")
     csv_file = os.path.join(path_data, "20240114_Bonfire_Gems.csv")
     mseed_files = os.path.join(path_data, "mseed", "2024-01-15*.mseed")
-    path_save = os.path.join(path_data, "processed", "processed_output.npy")
+    
+
+    #NOTE better way of doing this
+    path_save = os.path.join(path_data, "processed", "1HP_processed_output.npy")
 
     if process == True:
         # fiter and beamform    
@@ -30,47 +33,50 @@ def main(process=False):
     
 
     # correct backaz from 0 to 360 (instead of -180 to +180)
-    output_corr = np.copy(output)
-    backaz_corr = [output_corr[i][3] if output_corr[i][3]>=0 else output_corr[i][3]+360 for i in range(output_corr.shape[0])]
-
-    output_corr[:,3] = backaz_corr
+    #output_corr = np.copy(output)
+    output[:,3] = [output[i][3] if output[i][3]>=0 else output[i][3]+360 for i in range(output.shape[0])]
 
     # plot backaz to test
-    plt.plot(output[:,3][:100], 'bo', alpha=0.5, label='original')
-    plt.plot(output_corr[:,3][:100], 'ro', alpha=0.5, label='corrected')
-    plt.xlabel('sample number')
-    plt.ylabel('backazimuth [deg]')
-    plt.legend()
-    plt.show()
-
-
-
+    #plt.plot(output[:,3][:100], 'bo', alpha=0.5, label='original')
+    #plt.plot(output_corr[:,3][:100], 'ro', alpha=0.5, label='corrected')
+    #plt.xlabel('sample number')
+    #plt.ylabel('backazimuth [deg]')
+    #plt.legend()
+    #plt.show()
     
-    # try plotting with obspy example
-    #TODO clean this up to make it my own code!!
-    labels = ["rel pwr", "abs pwr", "backaz", "slow"]
+    time = output[:,0]
 
-    xlocator = mdates.AutoDateLocator()
-    fig = plt.figure()
-    for i, lab in enumerate(labels):
-        ax = fig.add_subplot(4, 1, i+1)
-        ax.scatter(output[:,0], output[:,i+1], c=output[:,1], alpha=0.6,
-                   edgecolors='none', cmap=obspy_sequential)
-        ax.set_ylabel(lab)
-        ax.set_xlim(output[0,0], output[-1,0])
-        ax.set_ylim(output[:,i+1].min(), output[:,i+1].max())
-        ax.xaxis.set_major_locator(xlocator)
-        ax.xaxis.set_major_formatter(mdates.AutoDateFormatter(xlocator))
-    fig.suptitle("Bonfire Test")
+    fig, ax = plt.subplots(2, 1, tight_layout=True, sharex=True)
+    ax[0].scatter(time, output[:,3], c=output[:,1], alpha=0.6, edgecolors='none', cmap=obspy_sequential)
+    ax[0].set_ylabel("Backazimuth [$^o$]")
+    ax[0].set_ylim([0, 360])
+    ax[0].set_yticks(ticks=np.arange(0, 360+60, 60))
+    ax[0].xaxis.set_major_locator(mdates.HourLocator(byhour=range(24)))
+    ax[0].xaxis.set_major_formatter(mdates.DateFormatter("%H:%M"))
+
+    ax[1].scatter(time, output[:,4], c=output[:,1], alpha=0.6, edgecolors='none', cmap=obspy_sequential)
+    ax[1].set_ylabel("Slowness [s/km]")
+    #ax[1].set_ylim([0, 360])
+    ax[1].xaxis.set_major_locator(mdates.HourLocator(byhour=range(24)))
+    ax[1].xaxis.set_major_formatter(mdates.DateFormatter("%H:%M"))
+    ax[1].set_xlabel("UTC Time")
+
     fig.autofmt_xdate()
-    fig.subplots_adjust(left=0.15, top=0.95, right=0.95, bottom=0.2, hspace=0)
+    fig.suptitle("Stanley Bonfire")
     plt.show()
-
 
 
     return
 
 def process_data(mseed_files, csv_file, path_save):
+    '''
+    
+    INPUTS
+
+    RETURNS
+    output : np array : timestamp, relative power, absolute power, backazimuth, slowness
+
+    '''
     # import data as obspy stream
     data = obspy.read(mseed_files)
 
@@ -134,4 +140,4 @@ def process_data(mseed_files, csv_file, path_save):
 
 
 if __name__ == "__main__":
-    main(process=True)
+    main(process=False)
