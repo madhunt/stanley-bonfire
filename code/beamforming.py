@@ -1,9 +1,11 @@
 #!/usr/bin/python3
 import matplotlib.pyplot as plt
+import matplotlib.dates as mdates
 import numpy as np
 import obspy
 from obspy.core.util import AttribDict
 from obspy.signal.array_analysis import array_processing
+from obspy.imaging.cm import obspy_sequential
 import os
 import pandas as pd
 
@@ -15,17 +17,40 @@ def main(process=False):
     path_data = os.path.join(path_home, "data")
     csv_file = os.path.join(path_data, "20240114_Bonfire_Gems.csv")
     mseed_files = os.path.join(path_data, "mseed", "2024-01-15*.mseed")
+    path_save = os.path.join(path_data, "processed", "processing_output.npy")
 
     if process == True:
-        output = process_data()
+        output = process_data(mseed_files, csv_file, path_save)
     else:
         # data has already been processed
-        output = np.load(file_save)
+        output = np.load(path_save)
+
+    
+    # try plotting with obspy example
+    #TODO clean this up to make it my own code!!
+    labels = ["rel pwr", "abs pwr", "backaz", "slow"]
+
+    xlocator = mdates.AutoDateLocator()
+    fig = plt.figure()
+    for i, lab in enumerate(labels):
+        ax = fig.add_subplot(4, 1, i+1)
+        ax.scatter(output[:,0], output[:,i+1], c=output[:,1], alpha=0.6,
+                   edgecolors='none', cmap=obspy_sequential)
+        ax.set_ylabel(lab)
+        ax.set_xlim(output[0,0], output[-1,0])
+        ax.set_ylim(output[:,i+1].min(), output[:,i+1].max())
+        ax.xaxis.set_major_locator(xlocator)
+        ax.xaxis.set_major_formatter(mdates.AutoDateFormatter(xlocator))
+    fig.suptitle("Bonfire Test")
+    fig.autofmt_xdate()
+    fig.subplots_adjust(left=0.15, top=0.95, right=0.95, bottom=0.2, hspace=0)
+    plt.show()
+
 
 
     return
 
-def process_data():
+def process_data(mseed_files, csv_file, path_save):
     # import data as obspy stream
     data = obspy.read(mseed_files)
 
@@ -52,8 +77,12 @@ def process_data():
                 'elevation': elv
             }) 
     
+    # HP 1 Hz filter
+            
+    
     # choose gems of interest
-    gem_list = ['138', '170', '155', '136', '133']
+    gem_list = ['138', '170', '155', '136', '133']  # hopefully back az towards south
+    # 126, 175, 231 are closer (but not plane wave)
     data_subset = [trace for trace in data.traces if trace.stats['station'] in gem_list]
     data_subset = obspy.Stream(traces=data_subset)
     
@@ -75,12 +104,11 @@ def process_data():
 
     output = array_processing(stream=data_subset, **kwargs)
 
-
     print(output)
 
     # save output as pkl
-    path_save = os.path.join(path_data, "pkls", "processing_output.pkl")
-    #output.write(path_save, format="PICKLE")
+    np.save(path_save, output)
+
     return output
 
 
