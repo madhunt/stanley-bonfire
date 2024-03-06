@@ -8,6 +8,7 @@ from obspy.signal.array_analysis import array_processing
 from obspy.imaging.cm import obspy_sequential
 import os
 import pandas as pd
+import scipy as sci
 
 
 def main(process=False):
@@ -17,13 +18,32 @@ def main(process=False):
     path_data = os.path.join(path_home, "data")
     csv_file = os.path.join(path_data, "20240114_Bonfire_Gems.csv")
     mseed_files = os.path.join(path_data, "mseed", "2024-01-15*.mseed")
-    path_save = os.path.join(path_data, "processed", "processing_output.npy")
+    path_save = os.path.join(path_data, "processed", "processed_output.npy")
 
     if process == True:
+        # fiter and beamform    
         output = process_data(mseed_files, csv_file, path_save)
+
     else:
         # data has already been processed
         output = np.load(path_save)
+    
+
+    # correct backaz from 0 to 360 (instead of -180 to +180)
+    output_corr = np.copy(output)
+    backaz_corr = [output_corr[i][3] if output_corr[i][3]>=0 else output_corr[i][3]+360 for i in range(output_corr.shape[0])]
+
+    output_corr[:,3] = backaz_corr
+
+    # plot backaz to test
+    plt.plot(output[:,3][:100], 'bo', alpha=0.5, label='original')
+    plt.plot(output_corr[:,3][:100], 'ro', alpha=0.5, label='corrected')
+    plt.xlabel('sample number')
+    plt.ylabel('backazimuth [deg]')
+    plt.legend()
+    plt.show()
+
+
 
     
     # try plotting with obspy example
@@ -54,6 +74,9 @@ def process_data(mseed_files, csv_file, path_save):
     # import data as obspy stream
     data = obspy.read(mseed_files)
 
+    # filter data with 1 Hz highpass
+    data = data.filter('highpass', freq=1.0)
+
     # import coordinates
     coords = pd.read_csv(csv_file)
     coords["Name"] = coords["Name"].astype(str)
@@ -77,8 +100,6 @@ def process_data(mseed_files, csv_file, path_save):
                 'elevation': elv
             }) 
     
-    # HP 1 Hz filter
-            
     
     # choose gems of interest
     gem_list = ['138', '170', '155', '136', '133']  # hopefully back az towards south
@@ -113,4 +134,4 @@ def process_data(mseed_files, csv_file, path_save):
 
 
 if __name__ == "__main__":
-    main(process=False)
+    main(process=True)
