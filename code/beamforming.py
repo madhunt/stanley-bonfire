@@ -13,24 +13,27 @@ import pandas as pd
 import scipy as sci
 
 
-def main(process=False):
+def main(process=False, trace_plot=False):
 
     #FIXME path stuff
     path_curr = os.path.dirname(os.path.realpath(__file__))
     path_home = os.path.abspath(os.path.join(path_curr, '..'))
     path_data = os.path.join(path_home, "data")
-    #FIXME better way of doing this
+    #FIXME ugly
     path_save = os.path.join(path_data, "processed", "1HP_processed_output.npy")
 
-    # load data
+    #FIXME arguments into main or better
     gem_list = ['138', '170', '155', '136', '133']  # hopefully back az towards south
     filter_type='highpass'
     filter_options = dict(freq=1.0)
+
+    # load data
     data = load_data(path_data, gem_list=gem_list, 
                      filter_type=filter_type, **filter_options)
-
-
-    print(data)
+    
+    # plot traces
+    if trace_plot == True:
+        plot_traces(data)
 
     if process == True:
         # fiter and beamform 
@@ -115,6 +118,13 @@ def load_data(path_data, gem_list=None, filter_type=None, **filter_options):
         data_subset = obspy.Stream(traces=data_subset)
         return data_subset
     
+
+def plot_traces(data):
+
+
+    return
+
+
 def process_data(data, path_save):
     '''
     RETURNS
@@ -147,9 +157,7 @@ def process_data(data, path_save):
 
 def simple_plot(output, path_home):
     
-
     # only plot backaz with slowness near 3 s/km
-
 
     time = output[:,0]
 
@@ -160,8 +168,6 @@ def simple_plot(output, path_home):
     ax[0].set_ylabel("Backazimuth [$^o$]")
     ax[0].set_ylim([0, 360])
     ax[0].set_yticks(ticks=np.arange(0, 360+60, 60))
-    ax[0].xaxis.set_major_locator(mdates.HourLocator(byhour=range(24)))
-    ax[0].xaxis.set_major_formatter(mdates.DateFormatter("%H:%M"))
     cb0 = fig.colorbar(im0, ax=ax[0])
     cb0.set_label(label='Semblance')
 
@@ -170,90 +176,22 @@ def simple_plot(output, path_home):
                   edgecolors='none', cmap='plasma')
     ax[1].set_ylabel("Slowness [s/km]")
     ax[1].set_yticks(ticks=np.arange(0, 5, 1))
-    ax[1].xaxis.set_major_locator(mdates.HourLocator(byhour=range(24)))
-    ax[1].xaxis.set_major_formatter(mdates.DateFormatter("%H:%M"))
-    ax[1].set_xlabel("UTC Time")
     cb1 = fig.colorbar(im1, ax=ax[1])
     cb1.set_label(label='Semblance')
 
+    for ax_i in ax:
+        ax_i.xaxis.set_major_locator(mdates.HourLocator(byhour=range(24)))
+        ax_i.xaxis.set_major_formatter(mdates.DateFormatter("%H:%M"))
+
     ax[1].set_xlim([datetime.datetime(2024, 1, 15, 2, 30), datetime.datetime(2024, 1, 15, 4)])
+    ax[1].set_xlabel("UTC Time")
     fig.autofmt_xdate()
     fig.suptitle("Stanley Bonfire")
     #FIXME path
     plt.savefig(os.path.join(path_home, "figures", f"1HP_backaz_slowness.png"), dpi=500)
     #plt.show()
-
     return
-
-
-
-def better_plot(output):
-    time = output[:,0]
-
-    fig, ax = plt.subplots(1, 1, tight_layout=True, sharex=True)
-
-
-
-    # plot backazimuth
-    wyor = colors.LinearSegmentedColormap('wyor', {'red': [[0, 1, 1], 
-                                                [1, 1, 1]],
-                                        'green': [[0, 1, 1],
-                                                  [0.075, 1, 1],
-                                                  [0.25, 1, 1],
-                                                  [0.925, 0, 0],
-                                                  [1, 0, 0]],
-                                        'blue': [[0, 1, 1],
-                                                 [0.075, 1, 1],
-                                                 [0.25, 0, 0],
-                                                 [0.925, 0, 0],
-                                                 [1, 0, 0]]
-                                        })
-    #image(detections_list, y=bin_centers, ax=ax1)
-    
-    #bins_all = []
-    #bin_centers = np.arange(0, 360, 2.5)
-    #for bin_center in bin_centers:
-    #    bin = np.sum((output[:,3] > (bin_center-1.25)) &
-    #                 (output[:,3] <= (bin_center+1.25)))
-    #    bins_all.append(bin)
-    #bins_all = np.array(bins_all)
-    #bins_all = np.reshape(bins_all, (144,1))
-    #detections_list = bins_all
-    #detections_list=np.swapaxes(detections_list, 0, 1)
-
-
-    #x = np.arange(detections_list.shape[1])
-    #im = ax.pcolormesh(x, bin_centers, detections_list.T,
-    #                    norm=colors.LogNorm(), vmin=None, vmax=None,
-    #                    cmap=wyor, shading='auto')
-
-
-    backaz_plot = np.array()
-
-    ax.pcolormesh(output[:,1], cmap=wyor)
-
-
-    #ax[0].scatter(time, output[:,3], c=output[:,1], alpha=0.6, edgecolors='none', cmap=obspy_sequential)
-    #ax[0].set_ylabel("Backazimuth [$^o$]")
-    #ax[0].set_ylim([0, 360])
-    #ax[0].set_yticks(ticks=np.arange(0, 360+60, 60))
-    #ax[0].xaxis.set_major_locator(mdates.HourLocator(byhour=range(24)))
-    #ax[0].xaxis.set_major_formatter(mdates.DateFormatter("%H:%M"))
-
-    #ax[1].scatter(time, output[:,4], c=output[:,1], alpha=0.6, edgecolors='none', cmap=obspy_sequential)
-    #ax[1].set_ylabel("Slowness [s/km]")
-    ##ax[1].set_ylim([0, 360])
-    #ax[1].xaxis.set_major_locator(mdates.HourLocator(byhour=range(24)))
-    #ax[1].xaxis.set_major_formatter(mdates.DateFormatter("%H:%M"))
-    #ax[1].set_xlabel("UTC Time")
-
-    #fig.autofmt_xdate()
-    fig.suptitle("Stanley Bonfire")
-    plt.show()
-    return
-
-
-
 
 if __name__ == "__main__":
-    main(process=False)
+    main(process=False, 
+         trace_plot=True)
