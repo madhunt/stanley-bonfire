@@ -1,5 +1,7 @@
 #!/usr/bin/python3
+import datetime
 import matplotlib.pyplot as plt
+import matplotlib.colors as colors
 import matplotlib.dates as mdates
 import numpy as np
 import obspy
@@ -13,106 +15,111 @@ import scipy as sci
 
 def main(process=False):
 
+    #FIXME path stuff
     path_curr = os.path.dirname(os.path.realpath(__file__))
     path_home = os.path.abspath(os.path.join(path_curr, '..'))
     path_data = os.path.join(path_home, "data")
-    csv_file = os.path.join(path_data, "20240114_Bonfire_Gems.csv")
-    mseed_files = os.path.join(path_data, "mseed", "2024-01-15*.mseed")
-    
-
-    #NOTE better way of doing this
+    #FIXME better way of doing this
     path_save = os.path.join(path_data, "processed", "1HP_processed_output.npy")
 
+    # load data
+    gem_list = ['138', '170', '155', '136', '133']  # hopefully back az towards south
+    filter_type='highpass'
+    filter_options = dict(freq=1.0)
+    data = load_data(path_data, gem_list=gem_list, 
+                     filter_type=filter_type, **filter_options)
+
+
+    print(data)
+
     if process == True:
-        # fiter and beamform    
-        output = process_data(mseed_files, csv_file, path_save)
+        # fiter and beamform 
+        output = process_data(data, path_save)
 
     else:
         # data has already been processed
         output = np.load(path_save)
     
-
     # correct backaz from 0 to 360 (instead of -180 to +180)
-    #output_corr = np.copy(output)
-    output[:,3] = [output[i][3] if output[i][3]>=0 else output[i][3]+360 for i in range(output.shape[0])]
+    output[:,3] = [output[i][3] if output[i][3]>=0 else output[i][3]+360 
+                    for i in range(output.shape[0])]
 
-    # plot backaz to test
-    #plt.plot(output[:,3][:100], 'bo', alpha=0.5, label='original')
-    #plt.plot(output_corr[:,3][:100], 'ro', alpha=0.5, label='corrected')
-    #plt.xlabel('sample number')
-    #plt.ylabel('backazimuth [deg]')
-    #plt.legend()
-    #plt.show()
+    simple_plot(output, path_home)#[:100,:])
+    #better_plot(output)
     
-    time = output[:,0]
-
-    fig, ax = plt.subplots(2, 1, tight_layout=True, sharex=True)
-    ax[0].scatter(time, output[:,3], c=output[:,1], alpha=0.6, edgecolors='none', cmap=obspy_sequential)
-    ax[0].set_ylabel("Backazimuth [$^o$]")
-    ax[0].set_ylim([0, 360])
-    ax[0].set_yticks(ticks=np.arange(0, 360+60, 60))
-    ax[0].xaxis.set_major_locator(mdates.HourLocator(byhour=range(24)))
-    ax[0].xaxis.set_major_formatter(mdates.DateFormatter("%H:%M"))
-
-    ax[1].scatter(time, output[:,4], c=output[:,1], alpha=0.6, edgecolors='none', cmap=obspy_sequential)
-    ax[1].set_ylabel("Slowness [s/km]")
-    #ax[1].set_ylim([0, 360])
-    ax[1].xaxis.set_major_locator(mdates.HourLocator(byhour=range(24)))
-    ax[1].xaxis.set_major_formatter(mdates.DateFormatter("%H:%M"))
-    ax[1].set_xlabel("UTC Time")
-
-    fig.autofmt_xdate()
-    fig.suptitle("Stanley Bonfire")
-    plt.show()
 
 
     return
 
-def process_data(mseed_files, csv_file, path_save):
+def load_data(path_data, gem_list=None, filter_type=None, **filter_options):
     '''
-    
+    Loads in and pre-processes array data.
+        Loads all miniseed files in a specified directory into an obspy stream. 
+        Assigns coordinates to all traces. If specified, filters data. If specified, 
+        only returns a subset of gems (otherwise, returns full array).
     INPUTS
-
+        path_data : str : Path to data folder. Should contain all miniseed files 
+            under 'mseed' dir, and coordinates in .csv file.
+        gem_list : list of str : Optional. If specified, should list Gem SNs 
+            of interest. If `None`, will return full array.
+        filter_type : str : Optional. Obspy filter type. Includes 'bandpass', 
+            'highpass', and 'lowpass'.
+        filter_options : dict : Optional. Obspy filter arguments. For 'bandpass', 
+            contains freqmin and freqmax. For low/high pass, contains freq.
     RETURNS
-    output : np array : timestamp, relative power, absolute power, backazimuth, slowness
-
+        data : obspy stream : Stream of data traces for full array, or specified 
+            Gems. Stats include assigned coordinates.
     '''
-    # import data as obspy stream
-    data = obspy.read(mseed_files)
+    # paths to mseed and coordinates
+    path_mseed = os.path.join(path_data, "mseed", "*.mseed")
+    #TODO do this better...
+    path_coords = os.path.join(path_data, "20240114_Bonfire_Gems.csv")
 
-    # filter data with 1 Hz highpass
-    data = data.filter('highpass', freq=1.0)
+    # import data as obspy stream
+    data = obspy.read(path_mseed)
 
     # import coordinates
-    coords = pd.read_csv(csv_file)
-    coords["Name"] = coords["Name"].astype(str)
+    coords = pd.read_csv(path_coords)
+    coords["Name"] = coords["Name"].astype(str) # SN of gem
     
     # get rid of any stations that don't have coordinates
-    data_list = [trace for trace in data.traces if trace.stats['station'] in coords["Name"].to_list()]
+    data_list = [trace for trace in data.traces 
+                    if trace.stats['station'] in coords["Name"].to_list()]
     # convert list back to obspy stream
     data = obspy.Stream(traces=data_list)
 
     # assign coordinates to stations
-    for idx, row in coords.iterrows():
+    for _, row in coords.iterrows():
         sn = row["Name"]
-        lat = row["Latitude"]
-        lon = row["Longitude"]
-        elv = row["Elevation"]
 
         for trace in data.select(station=sn):
             trace.stats.coordinates = AttribDict({
-                'latitude': lat,
-                'longitude': lon,
-                'elevation': elv
+                'latitude': row["Latitude"],
+                'longitude': row["Longitude"],
+                'elevation': row["Elevation"]
             }) 
     
+    if filter_type == None:
+        # don't filter data
+        pass
+    else:
+        # filter the data
+        data = data.filter(filter_type, **filter_options)
     
-    # choose gems of interest
-    gem_list = ['138', '170', '155', '136', '133']  # hopefully back az towards south
-    # 126, 175, 231 are closer (but not plane wave)
-    data_subset = [trace for trace in data.traces if trace.stats['station'] in gem_list]
-    data_subset = obspy.Stream(traces=data_subset)
+    if gem_list == None:
+        # use full array
+        return data
+    else:
+        # only use specified subset of gems
+        data_subset = [trace for trace in data.traces if trace.stats['station'] in gem_list]
+        data_subset = obspy.Stream(traces=data_subset)
+        return data_subset
     
+def process_data(data, path_save):
+    '''
+    RETURNS
+    output : np array : timestamp, relative power, absolute power, backazimuth, slowness
+    '''
     #NOTE this is the earliest time one of the gems shut off
     time_start = obspy.UTCDateTime("20240115T02:30:00")
     time_end = obspy.UTCDateTime("20240115T10:00:00")
@@ -129,7 +136,7 @@ def process_data(mseed_files, csv_file, path_save):
         stime=time_start, etime=time_end
     )
 
-    output = array_processing(stream=data_subset, **kwargs)
+    output = array_processing(stream=data, **kwargs)
 
     print(output)
 
@@ -137,6 +144,115 @@ def process_data(mseed_files, csv_file, path_save):
     np.save(path_save, output)
 
     return output
+
+def simple_plot(output, path_home):
+    
+
+    # only plot backaz with slowness near 3 s/km
+
+
+    time = output[:,0]
+
+    fig, ax = plt.subplots(2, 1, tight_layout=True, sharex=True)
+    im0 = ax[0].scatter(time, output[:,3], c=output[:,1], alpha=0.6, 
+                  vmin=output[:,1].min(), vmax=output[:,1].max(),
+                  edgecolors='none', cmap='plasma')
+    ax[0].set_ylabel("Backazimuth [$^o$]")
+    ax[0].set_ylim([0, 360])
+    ax[0].set_yticks(ticks=np.arange(0, 360+60, 60))
+    ax[0].xaxis.set_major_locator(mdates.HourLocator(byhour=range(24)))
+    ax[0].xaxis.set_major_formatter(mdates.DateFormatter("%H:%M"))
+    cb0 = fig.colorbar(im0, ax=ax[0])
+    cb0.set_label(label='Semblance')
+
+    im1 = ax[1].scatter(time, output[:,4], c=output[:,1], alpha=0.6, 
+                  vmin=output[:,1].min(), vmax=output[:,1].max(),
+                  edgecolors='none', cmap='plasma')
+    ax[1].set_ylabel("Slowness [s/km]")
+    ax[1].set_yticks(ticks=np.arange(0, 5, 1))
+    ax[1].xaxis.set_major_locator(mdates.HourLocator(byhour=range(24)))
+    ax[1].xaxis.set_major_formatter(mdates.DateFormatter("%H:%M"))
+    ax[1].set_xlabel("UTC Time")
+    cb1 = fig.colorbar(im1, ax=ax[1])
+    cb1.set_label(label='Semblance')
+
+    ax[1].set_xlim([datetime.datetime(2024, 1, 15, 2, 30), datetime.datetime(2024, 1, 15, 4)])
+    fig.autofmt_xdate()
+    fig.suptitle("Stanley Bonfire")
+    #FIXME path
+    plt.savefig(os.path.join(path_home, "figures", f"1HP_backaz_slowness.png"), dpi=500)
+    #plt.show()
+
+    return
+
+
+
+def better_plot(output):
+    time = output[:,0]
+
+    fig, ax = plt.subplots(1, 1, tight_layout=True, sharex=True)
+
+
+
+    # plot backazimuth
+    wyor = colors.LinearSegmentedColormap('wyor', {'red': [[0, 1, 1], 
+                                                [1, 1, 1]],
+                                        'green': [[0, 1, 1],
+                                                  [0.075, 1, 1],
+                                                  [0.25, 1, 1],
+                                                  [0.925, 0, 0],
+                                                  [1, 0, 0]],
+                                        'blue': [[0, 1, 1],
+                                                 [0.075, 1, 1],
+                                                 [0.25, 0, 0],
+                                                 [0.925, 0, 0],
+                                                 [1, 0, 0]]
+                                        })
+    #image(detections_list, y=bin_centers, ax=ax1)
+    
+    #bins_all = []
+    #bin_centers = np.arange(0, 360, 2.5)
+    #for bin_center in bin_centers:
+    #    bin = np.sum((output[:,3] > (bin_center-1.25)) &
+    #                 (output[:,3] <= (bin_center+1.25)))
+    #    bins_all.append(bin)
+    #bins_all = np.array(bins_all)
+    #bins_all = np.reshape(bins_all, (144,1))
+    #detections_list = bins_all
+    #detections_list=np.swapaxes(detections_list, 0, 1)
+
+
+    #x = np.arange(detections_list.shape[1])
+    #im = ax.pcolormesh(x, bin_centers, detections_list.T,
+    #                    norm=colors.LogNorm(), vmin=None, vmax=None,
+    #                    cmap=wyor, shading='auto')
+
+
+    backaz_plot = np.array()
+
+    ax.pcolormesh(output[:,1], cmap=wyor)
+
+
+    #ax[0].scatter(time, output[:,3], c=output[:,1], alpha=0.6, edgecolors='none', cmap=obspy_sequential)
+    #ax[0].set_ylabel("Backazimuth [$^o$]")
+    #ax[0].set_ylim([0, 360])
+    #ax[0].set_yticks(ticks=np.arange(0, 360+60, 60))
+    #ax[0].xaxis.set_major_locator(mdates.HourLocator(byhour=range(24)))
+    #ax[0].xaxis.set_major_formatter(mdates.DateFormatter("%H:%M"))
+
+    #ax[1].scatter(time, output[:,4], c=output[:,1], alpha=0.6, edgecolors='none', cmap=obspy_sequential)
+    #ax[1].set_ylabel("Slowness [s/km]")
+    ##ax[1].set_ylim([0, 360])
+    #ax[1].xaxis.set_major_locator(mdates.HourLocator(byhour=range(24)))
+    #ax[1].xaxis.set_major_formatter(mdates.DateFormatter("%H:%M"))
+    #ax[1].set_xlabel("UTC Time")
+
+    #fig.autofmt_xdate()
+    fig.suptitle("Stanley Bonfire")
+    plt.show()
+    return
+
+
 
 
 if __name__ == "__main__":
