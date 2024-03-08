@@ -1,7 +1,7 @@
 #!/usr/bin/python3
 import datetime
 import matplotlib.pyplot as plt
-import matplotlib.colors as colors
+from matplotlib.pyplot import cm
 import matplotlib.dates as mdates
 import numpy as np
 import obspy
@@ -31,9 +31,9 @@ def main(process=False, trace_plot=False):
     data = load_data(path_data, gem_list=gem_list, 
                      filter_type=filter_type, **filter_options)
     
-    # plot traces
+    # plot individual traces
     if trace_plot == True:
-        plot_traces(data)
+        plot_traces(data, path_home)
 
     if process == True:
         # fiter and beamform 
@@ -119,9 +119,32 @@ def load_data(path_data, gem_list=None, filter_type=None, **filter_options):
         return data_subset
     
 
-def plot_traces(data):
+def plot_traces(data, path_home):
 
+    #NOTE this will need to change if ever plotting more traces**
+    #NOTE can also concat different days for same gem
 
+    # define number of traces
+    n = len(data)
+    
+    fig, ax = plt.subplots(n, 1, sharex=True, sharey=True, tight_layout=True)
+    color = cm.rainbow(np.linspace(0, 1, n))
+
+    for i, trace in enumerate(data):
+        # plot trace
+        ax[i].plot(trace.times("matplotlib"), trace.data, c=color[i])
+        ax[i].grid()
+        ax[i].set_ylabel(trace.stats["station"])
+        ax[i].xaxis_date()
+
+        #NOTE change this
+        ax[i].set_ylim([-100, 100])
+
+    # label bottom x-axis
+    ax[n-1].set_xlabel("UTC Time")
+    fig.autofmt_xdate()
+    plt.savefig(os.path.join(path_home, "figures", f"traces.png"), dpi=500)
+    #plt.show()
     return
 
 
