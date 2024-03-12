@@ -154,10 +154,19 @@ def plot_traces(data, path_home):
 
 def process_data(data, path_save, time_start=None, time_end=None):
     '''
+    Run obspy array_processing() function to beamform data. Save in .npy format to specified 
+    location. Returns output as np array, with backazimuths from 0-360.
+    INPUTS
+        data : obspy stream : merged data files
+        path_save : str : path and filename to save output as .npy
+        time_start : obspy UTCDateTime : if specified, time to start beamforming. If not specified, 
+            will use max start time from all Gems.
+        time_end : obspy UTCDateTime : if specified, time to end beamforming. If not specified, 
+            will use min end time from all Gems.
     RETURNS
-    output : np array : timestamp, relative power, absolute power, backazimuth (0-360), slowness
+        output : np array : array with 5 rows of output from array_processing. Rows are: timestamp, 
+            relative power (semblance), absolute power, backazimuth (from 0-360), and slowness (in s/km).
     '''
-
     # if times are not provided, use max/min start and end times from gems
     if time_start == None:
         # specify start time
@@ -165,20 +174,17 @@ def process_data(data, path_save, time_start=None, time_end=None):
     if time_end == None:
         time_end = min([trace.stats.endtime for trace in data])
 
-    #time_start = obspy.UTCDateTime("20240114T22:30:00")
-    #time_end = obspy.UTCDateTime("20240114T14:23:59")
-
+    #FIXME probably can clean this up when these change
     process_kwargs = dict(
         # slowness grid (in [s/km])
         sll_x=-4.0, slm_x=4.0, sll_y=-4.0, slm_y=4.0, sl_s=0.1,
         # sliding window
-        win_len=10, win_frac = 0.50,
+        win_len=10, win_frac=0.50,
         # frequency
         frqlow=2.0, frqhigh=10.0, prewhiten=0,
         # output restrictions
         semb_thres=-1e9, vel_thres=-1e9, timestamp='mlabday',
-        stime=time_start, etime=time_end
-    )
+        stime=time_start, etime=time_end)
 
     output = array_processing(stream=data, **process_kwargs)
 
@@ -186,11 +192,8 @@ def process_data(data, path_save, time_start=None, time_end=None):
     output[:,3] = [output[i][3] if output[i][3]>=0 else output[i][3]+360 
                     for i in range(output.shape[0])]
 
-    #print(output)
-
-    # save output as pkl
+    # save output to .npy file
     np.save(path_save, output)
-
     return output
 
 def plot_backaz_slowness(output, path_home):
