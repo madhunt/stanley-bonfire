@@ -1,5 +1,4 @@
 #!/usr/bin/python3
-import datetime
 import glob
 import matplotlib.pyplot as plt
 from matplotlib.pyplot import cm
@@ -8,7 +7,6 @@ import numpy as np
 import obspy
 from obspy.core.util import AttribDict
 from obspy.signal.array_analysis import array_processing
-from obspy.imaging.cm import obspy_sequential
 import os
 import pandas as pd
 
@@ -121,36 +119,37 @@ def load_data(path_data, gem_list=None, filter_type=None, **filter_options):
         data_subset = obspy.Stream(traces=data_subset)
         return data_subset
     
-
 def plot_traces(data, path_home):
-
-    #NOTE this will need to change if ever plotting more traces**
-    #NOTE can also concat different days for same gem
-
+    '''
+    Plots individual traces from each Gem and saves at path_home/figures/traces.png.
+    INPUTS
+        data : obspy stream : merged stream with data from all Gems to plot
+        path_home : str : path to main dir. Figure will be saved in "figures" subdir.
+    RETURNS
+        Saves figure at path_home/figures/traces.png
+    '''
     # define number of traces
     n = len(data)
-    
+    #TODO make separate figures if plotting full array (if n > certain number)
     fig, ax = plt.subplots(n, 1, sharex=True, sharey=True, tight_layout=True)
     color = cm.rainbow(np.linspace(0, 1, n))
 
     for i, trace in enumerate(data):
-        # plot trace
         ax[i].plot(trace.times("matplotlib"), trace.data, c=color[i])
         ax[i].grid()
         ax[i].set_ylabel(trace.stats["station"])
         ax[i].xaxis_date()
 
-        #NOTE change this
+        #TODO change this -- how to do this better?
         ax[i].set_ylim([-100, 100])
 
-    # label bottom x-axis
+    # label and format bottom x-axis
     ax[n-1].set_xlabel("UTC Time")
     fig.autofmt_xdate()
     fig.suptitle("Individual Gem Traces")
-    plt.savefig(os.path.join(path_home, "figures", f"traces.png"), dpi=500)
-    #plt.show()
-    return
 
+    plt.savefig(os.path.join(path_home, "figures", f"traces.png"), dpi=500)
+    return
 
 def process_data(data, path_save, time_start=None, time_end=None):
     '''
@@ -258,7 +257,6 @@ def simple_beamform_plot(plot_type, output, fig, ax):
     cb = fig.colorbar(im, ax=ax)
     cb.set_label("Semblance")
     return im
-
 
 if __name__ == "__main__":
     main(process=False, 
