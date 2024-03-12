@@ -33,23 +33,22 @@ def main(process=False, trace_plot=False):
     
     # plot individual traces
     if trace_plot == True:
+        print("Plotting Traces")
         plot_traces(data, path_home)
 
     if process == True:
+        print("Processing Data")
         # fiter and beamform 
         output = process_data(data, path_save)
 
     else:
+        print("Loading Data")
         # data has already been processed
         output = np.load(path_save)
     
-    # correct backaz from 0 to 360 (instead of -180 to +180)
-    output[:,3] = [output[i][3] if output[i][3]>=0 else output[i][3]+360 
-                    for i in range(output.shape[0])]
 
-    simple_plot(output, path_home)#[:100,:])
-    #better_plot(output)
-    
+    print("Plotting Backazimuth and Slowness")
+    plot_backaz_slowness(output, path_home)#[:100,:])
 
 
     return
@@ -74,7 +73,7 @@ def load_data(path_data, gem_list=None, filter_type=None, **filter_options):
             Gems. Stats include assigned coordinates.
     '''
     # paths to mseed and coordinates
-    path_mseed = os.path.join(path_data, "mseed", "*.mseed")
+    path_mseed = os.path.join(path_data, "mseed", "2024-01-15*.mseed")
     #TODO do this better...
     path_coords = os.path.join(path_data, "20240114_Bonfire_Gems.csv")
 
@@ -151,13 +150,13 @@ def plot_traces(data, path_home):
 def process_data(data, path_save):
     '''
     RETURNS
-    output : np array : timestamp, relative power, absolute power, backazimuth, slowness
+    output : np array : timestamp, relative power, absolute power, backazimuth (0-360), slowness
     '''
     #NOTE this is the earliest time one of the gems shut off
     time_start = obspy.UTCDateTime("20240115T02:30:00")
-    time_end = obspy.UTCDateTime("20240115T10:00:00")
+    time_end = obspy.UTCDateTime("20240115T05:29:00")
 
-    kwargs = dict(
+    process_kwargs = dict(
         # slowness grid (in [s/km])
         sll_x=-4.0, slm_x=4.0, sll_y=-4.0, slm_y=4.0, sl_s=0.1,
         # sliding window
@@ -169,23 +168,33 @@ def process_data(data, path_save):
         stime=time_start, etime=time_end
     )
 
-    output = array_processing(stream=data, **kwargs)
+    output = array_processing(stream=data, **process_kwargs)
 
-    print(output)
+
+    # correct backaz from 0 to 360 (instead of -180 to +180)
+    output[:,3] = [output[i][3] if output[i][3]>=0 else output[i][3]+360 
+                    for i in range(output.shape[0])]
+
+    #print(output)
 
     # save output as pkl
     np.save(path_save, output)
 
     return output
 
-def simple_plot(output, path_home):
+def plot_backaz_slowness(output, path_home):
     
+    #TODO
     # only plot backaz with slowness near 3 s/km
 
     time = output[:,0]
+    backaz = output[:,3]
+
+    # filter to only plot backazimuths with slowness near 3 s/km
+    #backaz_filt = [backaz[i] for i in range(len(backaz)) if 2.5 < output[:,1][i] < 3.5 ] 
 
     fig, ax = plt.subplots(2, 1, tight_layout=True, sharex=True)
-    im0 = ax[0].scatter(time, output[:,3], c=output[:,1], alpha=0.6, 
+    im0 = ax[0].scatter(time,  backaz, c=output[:,1], alpha=0.6,  #TODO plot backaz_filt
                   vmin=output[:,1].min(), vmax=output[:,1].max(),
                   edgecolors='none', cmap='plasma')
     ax[0].set_ylabel("Backazimuth [$^o$]")
@@ -217,4 +226,4 @@ def simple_plot(output, path_home):
 
 if __name__ == "__main__":
     main(process=False, 
-         trace_plot=True)
+         trace_plot=False)
