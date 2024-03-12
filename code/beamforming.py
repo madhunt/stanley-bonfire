@@ -1,5 +1,6 @@
 #!/usr/bin/python3
 import datetime
+import glob
 import matplotlib.pyplot as plt
 from matplotlib.pyplot import cm
 import matplotlib.dates as mdates
@@ -10,10 +11,9 @@ from obspy.signal.array_analysis import array_processing
 from obspy.imaging.cm import obspy_sequential
 import os
 import pandas as pd
-import scipy as sci
 
 
-def main(process=False, trace_plot=False):
+def main(process=False, trace_plot=False, backaz_plot=False):
 
     #FIXME path stuff
     path_curr = os.path.dirname(os.path.realpath(__file__))
@@ -23,9 +23,12 @@ def main(process=False, trace_plot=False):
     path_save = os.path.join(path_data, "processed", "1HP_processed_output.npy")
 
     #FIXME arguments into main or better
-    gem_list = ['138', '170', '155', '136', '133']  # hopefully back az towards south
+    gem_list = ['138', '170', '155', '136', '150']#, '133']  # hopefully back az towards south
+    #FIXME removed 133 because data didnt start until 01-15T02
     filter_type='highpass'
     filter_options = dict(freq=1.0)
+
+    
 
     # load data
     data = load_data(path_data, gem_list=gem_list, 
@@ -39,18 +42,16 @@ def main(process=False, trace_plot=False):
     if process == True:
         print("Processing Data")
         # fiter and beamform 
-        output = process_data(data, path_save)
-
+        output = process_data(data, path_save, time_start=None, time_end=None)
     else:
         print("Loading Data")
         # data has already been processed
         output = np.load(path_save)
     
-
-    print("Plotting Backazimuth and Slowness")
-    plot_backaz_slowness(output, path_home)#[:100,:])
-
-
+    if backaz_plot == True:
+        print("Plotting Backazimuth and Slowness")
+        plot_backaz_slowness(output, path_home)#[:100,:])
+    
     return
 
 def load_data(path_data, gem_list=None, filter_type=None, **filter_options):
@@ -61,7 +62,7 @@ def load_data(path_data, gem_list=None, filter_type=None, **filter_options):
         only returns a subset of gems (otherwise, returns full array).
     INPUTS
         path_data : str : Path to data folder. Should contain all miniseed files 
-            under 'mseed' dir, and coordinates in .csv file.
+            under 'mseed' dir, and coordinates in .csv file(s).
         gem_list : list of str : Optional. If specified, should list Gem SNs 
             of interest. If `None`, will return full array.
         filter_type : str : Optional. Obspy filter type. Includes 'bandpass', 
@@ -73,15 +74,16 @@ def load_data(path_data, gem_list=None, filter_type=None, **filter_options):
             Gems. Stats include assigned coordinates.
     '''
     # paths to mseed and coordinates
-    path_mseed = os.path.join(path_data, "mseed", "2024-01-15*.mseed")
-    #TODO do this better...
-    path_coords = os.path.join(path_data, "20240114_Bonfire_Gems.csv")
+    path_mseed = os.path.join(path_data, "mseed", "*.mseed")
+    path_coords = glob.glob(os.path.join(path_data, "*.csv" ))#"20240114_Bonfire_Gems.csv")
 
     # import data as obspy stream
     data = obspy.read(path_mseed)
 
     # import coordinates
-    coords = pd.read_csv(path_coords)
+    coords = pd.DataFrame()
+    for file in path_coords:
+        coords = pd.concat([coords, pd.read_csv(file)])
     coords["Name"] = coords["Name"].astype(str) # SN of gem
     
     # get rid of any stations that don't have coordinates
@@ -93,7 +95,6 @@ def load_data(path_data, gem_list=None, filter_type=None, **filter_options):
     # assign coordinates to stations
     for _, row in coords.iterrows():
         sn = row["Name"]
-
         for trace in data.select(station=sn):
             trace.stats.coordinates = AttribDict({
                 'latitude': row["Latitude"],
@@ -105,8 +106,11 @@ def load_data(path_data, gem_list=None, filter_type=None, **filter_options):
         # don't filter data
         pass
     else:
-        # filter the data
+        # filter data
         data = data.filter(filter_type, **filter_options)
+
+    # merge dates (discard overlaps and leave gaps)
+    data = data.merge(method=0)
     
     if gem_list == None:
         # use full array
@@ -142,19 +146,27 @@ def plot_traces(data, path_home):
     # label bottom x-axis
     ax[n-1].set_xlabel("UTC Time")
     fig.autofmt_xdate()
+    fig.suptitle("Individual Gem Traces")
     plt.savefig(os.path.join(path_home, "figures", f"traces.png"), dpi=500)
     #plt.show()
     return
 
 
-def process_data(data, path_save):
+def process_data(data, path_save, time_start=None, time_end=None):
     '''
     RETURNS
     output : np array : timestamp, relative power, absolute power, backazimuth (0-360), slowness
     '''
-    #NOTE this is the earliest time one of the gems shut off
-    time_start = obspy.UTCDateTime("20240115T02:30:00")
-    time_end = obspy.UTCDateTime("20240115T05:29:00")
+
+    # if times are not provided, use max/min start and end times from gems
+    if time_start == None:
+        # specify start time
+        time_start = max([trace.stats.starttime for trace in data])
+    if time_end == None:
+        time_end = min([trace.stats.endtime for trace in data])
+
+    #time_start = obspy.UTCDateTime("20240114T22:30:00")
+    #time_end = obspy.UTCDateTime("20240114T14:23:59")
 
     process_kwargs = dict(
         # slowness grid (in [s/km])
@@ -170,7 +182,6 @@ def process_data(data, path_save):
 
     output = array_processing(stream=data, **process_kwargs)
 
-
     # correct backaz from 0 to 360 (instead of -180 to +180)
     output[:,3] = [output[i][3] if output[i][3]>=0 else output[i][3]+360 
                     for i in range(output.shape[0])]
@@ -184,38 +195,26 @@ def process_data(data, path_save):
 
 def plot_backaz_slowness(output, path_home):
     
-    #TODO
+    #TODO have this as a func with user input slow min/max at some point
     # only plot backaz with slowness near 3 s/km
-
-    time = output[:,0]
-    backaz = output[:,3]
-
-    # filter to only plot backazimuths with slowness near 3 s/km
-    #backaz_filt = [backaz[i] for i in range(len(backaz)) if 2.5 < output[:,1][i] < 3.5 ] 
+    slow_min = 2.9
+    slow_max = 3.1
+    output_constrain = []
+    for col in output.T:
+        col_constrain = [col[i] for i in range(len(col)) if slow_min < output[:,4][i] < slow_max]
+        col_constrain = np.array(col_constrain)
+        output_constrain.append(col_constrain)
+    output_constrain = np.array(output_constrain).T
 
     fig, ax = plt.subplots(2, 1, tight_layout=True, sharex=True)
-    im0 = ax[0].scatter(time,  backaz, c=output[:,1], alpha=0.6,  #TODO plot backaz_filt
-                  vmin=output[:,1].min(), vmax=output[:,1].max(),
-                  edgecolors='none', cmap='plasma')
-    ax[0].set_ylabel("Backazimuth [$^o$]")
-    ax[0].set_ylim([0, 360])
-    ax[0].set_yticks(ticks=np.arange(0, 360+60, 60))
-    cb0 = fig.colorbar(im0, ax=ax[0])
-    cb0.set_label(label='Semblance')
-
-    im1 = ax[1].scatter(time, output[:,4], c=output[:,1], alpha=0.6, 
-                  vmin=output[:,1].min(), vmax=output[:,1].max(),
-                  edgecolors='none', cmap='plasma')
-    ax[1].set_ylabel("Slowness [s/km]")
-    ax[1].set_yticks(ticks=np.arange(0, 5, 1))
-    cb1 = fig.colorbar(im1, ax=ax[1])
-    cb1.set_label(label='Semblance')
+    im0 = simple_beamform_plot('backaz', output_constrain, fig, ax[0])
+    im1 = simple_beamform_plot('slowness', output, fig, ax[1])
 
     for ax_i in ax:
         ax_i.xaxis.set_major_locator(mdates.HourLocator(byhour=range(24)))
-        ax_i.xaxis.set_major_formatter(mdates.DateFormatter("%H:%M"))
+        ax_i.xaxis.set_major_formatter(mdates.DateFormatter("%m-%d %H:%M"))
 
-    ax[1].set_xlim([datetime.datetime(2024, 1, 15, 2, 30), datetime.datetime(2024, 1, 15, 4)])
+    #ax[1].set_xlim([datetime.datetime(2024, 1, 15, 2, 30), datetime.datetime(2024, 1, 15, 4)])
     ax[1].set_xlabel("UTC Time")
     fig.autofmt_xdate()
     fig.suptitle("Stanley Bonfire")
@@ -224,6 +223,41 @@ def plot_backaz_slowness(output, path_home):
     #plt.show()
     return
 
+#TODO think about this... there's probably a neater way to consolidate and reuse this func
+# will leave for now and wait for other plotting needs
+def simple_beamform_plot(plot_type, output, fig, ax):
+    '''
+    Plots beackazimuth or slowness on given figure, along with colorbar. Assumes output array 
+    includes columns in the same order as output of array_processing().
+    INPUTS
+        plot_type : str : 'backaz' or 'slowness'
+        output : np array : array with 5 rows containing output of array_processing() function. 
+            This includes time, semblance, abs power, backazimuth, and slowness.
+        fig, ax : pyplot handles(?) : handles(?) to figure and axes
+    RETURNS
+        im : handle(?) : handle to image
+    '''
+    if plot_type == 'backaz':
+        yvar = output[:,3]
+        ax.set_ylabel("Backazimuth [$^o$]")
+        ax.set_ylim([0, 360])
+        ax.set_yticks(ticks=np.arange(0, 360+60, 60))
+    elif plot_type == 'slowness':
+        yvar = output[:,4]
+        ax.set_ylabel("Slowness [s/km]")
+        ax.set_yticks(ticks=np.arange(0, int(max(output[:,4]))+1, 1))
+    else:
+        raise Exception("Plot type not supported!")
+
+    im = ax.scatter(output[:,0], yvar, c=output[:,1],
+                    alpha=0.6, edgecolors='none', cmap='plasma',
+                    vmin=min(output[:,1]), vmax=max(output[:,1]))
+    cb = fig.colorbar(im, ax=ax)
+    cb.set_label("Semblance")
+    return im
+
+
 if __name__ == "__main__":
     main(process=False, 
-         trace_plot=False)
+         trace_plot=False,
+         backaz_plot=True)
